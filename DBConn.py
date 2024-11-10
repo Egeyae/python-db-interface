@@ -1,5 +1,6 @@
 import psycopg2
 
+
 class DatabaseConnection:
     def __init__(self, db_name, username, password, host='localhost', port=5432):
         self.name = db_name
@@ -18,7 +19,6 @@ class DatabaseConnection:
                 host=self.host,
                 port=self.port
             )
-            self._password = None
 
     def close(self):
         if self._conn:

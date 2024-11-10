@@ -1,52 +1,51 @@
 from psycopg2 import sql
-from exceptions import RequiredParameterNotSet
+from exceptions import RequiredParameterNotSetError
 from DBConn import DatabaseConnection
 
+
 class Model:
-    def __init__(self, db_connection: DatabaseConnection, table_name: str, primary_keys: list[str], **columns: str):
+    def __init__(self, db_connection: DatabaseConnection, model_definition: dict):
         """
         Initialize the Model with database connection, table name, primary keys, and columns.
 
         :param db_connection: Database connection object
-        :param table_name: Name of the table in the database
-        :param primary_keys: List of primary key column names
-        :param columns: Column names and types as key-value pairs
+        :param model_definition: Dictionary of model definition
         """
+
         self._db_connection: DatabaseConnection = db_connection
-        self._table_name = table_name
-        self._primary_keys = primary_keys
-        self._columns = columns
+        self.name = None
+        self.primary_keys = None
+        self.columns = None
 
-        if not table_name:
-            raise RequiredParameterNotSet('table_name')
-        if not primary_keys or not isinstance(primary_keys, list):
-            raise RequiredParameterNotSet('primary_keys. Must provide a list of primary keys')
-        if not columns:
-            raise RequiredParameterNotSet('columns. A table should have at least one column')
+        self.__dict__.update(model_definition)
 
-        for pk in primary_keys:
-            if pk not in columns:
+        if not self.name:
+            raise RequiredParameterNotSetError('table_name')
+        if not self.primary_keys or not isinstance(self.primary_keys, list):
+            raise RequiredParameterNotSetError('primary_keys. Must provide a list of at least one primary key')
+        if not self.columns:
+            raise RequiredParameterNotSetError('columns. A Model() [table] should have at least one column')
+        for pk in self.primary_keys:
+            if pk not in self.columns:
                 raise ValueError(f"Primary key '{pk}' must be defined in columns")
 
     def __repr__(self) -> str:
-        """Return string representation of the model."""
-        return f'{self._table_name}: {self._columns}'
+        return f'{self.name} -> ({", ".join([f"{x[0]}: {x[1]} <{True if x[0] in self.primary_keys else False}>" for x in self.columns.items()])})'
 
-    def drop_table(self) -> None:
-        """Drop the table if it exists in the database."""
+    def dropTable(self) -> None:
         query = sql.SQL("DROP TABLE IF EXISTS {table};").format(
-            table=sql.Identifier(self._table_name)
+            table=sql.Identifier(self.name)
         )
         self._db_connection.execute(query)
 
-    def create_table(self) -> None:
+    def createTable(self) -> None:
         """Create the table with the specified columns and primary keys."""
         cols_def = [
             sql.SQL("{col} {type}").format(
                 col=sql.Identifier(col), type=sql.SQL(col_type)
-            ) for col, col_type in self._columns.items()
+            ) for col, col_type in self.columns.items()
         ]
-        primary_keys_def = sql.SQL(', ').join(sql.Identifier(pk) for pk in self._primary_keys)
+        primary_keys_def = sql.SQL(', ').join(sql.Identifier(pk) for pk in self.primary_keys)
 
         query = sql.SQL("""
             CREATE TABLE IF NOT EXISTS {table} (
@@ -54,13 +53,13 @@ class Model:
                 PRIMARY KEY ({primary_keys})
             );
         """).format(
-            table=sql.Identifier(self._table_name),
+            table=sql.Identifier(self.name),
             columns=sql.SQL(', ').join(cols_def),
             primary_keys=primary_keys_def
         )
         self._db_connection.execute(query)
 
-    def insert_row(self, update: bool = False, **values) -> int:
+    def insertRow(self, update: bool = False, **values) -> int:
         """
         Insert a row into the table. Optionally, update existing rows if there is a conflict.
 
@@ -70,11 +69,11 @@ class Model:
         """
         columns_to_insert = []
         values_to_insert = []
-        for col, col_type in self._columns.items():
+        for col, col_type in self.columns.items():
             if col in values and values[col] is not None:
                 columns_to_insert.append(sql.Identifier(col))
                 values_to_insert.append(values[col])
-            elif col in self._primary_keys and "SERIAL" in col_type and not update:
+            elif col in self.primary_keys and "SERIAL" in col_type and not update:
                 continue
             elif col not in values:
                 raise ValueError(f"Missing value for column '{col}'")
@@ -85,10 +84,10 @@ class Model:
         if update:
             updates = sql.SQL(', ').join(
                 sql.SQL("{col} = EXCLUDED.{col}").format(col=col)
-                for col in columns_to_insert if col.string not in self._primary_keys
+                for col in columns_to_insert if col.string not in self.primary_keys
             )
             conflict_clause = sql.SQL("ON CONFLICT ({pks}) DO UPDATE SET {updates}").format(
-                pks=sql.SQL(', ').join(sql.Identifier(pk) for pk in self._primary_keys),
+                pks=sql.SQL(', ').join(sql.Identifier(pk) for pk in self.primary_keys),
                 updates=updates
             )
         else:
@@ -97,7 +96,7 @@ class Model:
         query = sql.SQL("""
             INSERT INTO {table} ({columns}) VALUES ({values}) {conflict_clause} RETURNING id;
         """).format(
-            table=sql.Identifier(self._table_name),
+            table=sql.Identifier(self.name),
             columns=columns,
             values=placeholders,
             conflict_clause=conflict_clause
@@ -105,20 +104,20 @@ class Model:
 
         return self._db_connection.execute_return_id(query, values_to_insert)
 
-    def delete_row(self, row_values: list) -> None:
+    def deleteRow(self, row_values: list) -> None:
         """
         Delete a row based on primary key values.
 
         :param row_values: Values corresponding to the primary keys
         """
-        if len(row_values) != len(self._primary_keys):
-            raise ValueError(f"Provide values for the primary keys: {self._primary_keys}")
+        if len(row_values) != len(self.primary_keys):
+            raise ValueError(f"Provide values for the primary keys: {self.primary_keys}")
 
         where_clause = sql.SQL(" AND ").join(
-            sql.SQL("{pk} = %s").format(pk=sql.Identifier(pk)) for pk in self._primary_keys
+            sql.SQL("{pk} = %s").format(pk=sql.Identifier(pk)) for pk in self.primary_keys
         )
         query = sql.SQL("DELETE FROM {table} WHERE {where_clause};").format(
-            table=sql.Identifier(self._table_name),
+            table=sql.Identifier(self.name),
             where_clause=where_clause
         )
         self._db_connection.execute(query, row_values)
@@ -155,7 +154,7 @@ class Model:
 
         query = sql.SQL("SELECT {columns} FROM {table} {where} {order} {limit};").format(
             columns=columns_sql,
-            table=sql.Identifier(self._table_name),
+            table=sql.Identifier(self.name),
             where=where_sql,
             order=order_sql,
             limit=limit_sql
