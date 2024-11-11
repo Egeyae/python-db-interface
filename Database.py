@@ -1,4 +1,4 @@
-from DBConn import DatabaseConnection
+from DatabaseConnection import DatabaseConnection
 from Model import Model
 import json
 from os import getenv

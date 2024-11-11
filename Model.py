@@ -1,6 +1,6 @@
 from psycopg2 import sql
 from exceptions import RequiredParameterNotSetError
-from DBConn import DatabaseConnection
+from DatabaseConnection import DatabaseConnection
 
 
 class Model:
