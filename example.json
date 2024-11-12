@@ -1,0 +1,21 @@
+{
+  "database": {
+    "name": "DB_NAME",
+    "host": "HOST",
+    "port": "PORT",
+    "username": "ENV",
+    "password": "ENV"
+  },
+  "models": [
+    {
+      "name": "example",
+      "columns": {
+        "id": "SERIAL",
+        "name": "VARCHAR(100)"
+      },
+      "primary_keys": [
+        "id"
+      ]
+    }
+  ]
+}
