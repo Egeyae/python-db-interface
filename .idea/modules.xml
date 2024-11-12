@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/PostgreDB_Python_Interface.iml" filepath="$PROJECT_DIR$/.idea/PostgreDB_Python_Interface.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/python-db-interface.iml" filepath="$PROJECT_DIR$/.idea/python-db-interface.iml" />
     </modules>
   </component>
 </project>

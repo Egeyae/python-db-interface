@@ -1,6 +1,11 @@
 from psycopg2 import sql
-from exceptions import RequiredParameterNotSetError
 from DatabaseConnection import DatabaseConnection
+
+
+class RequiredParameterNotSetError(Exception):
+    def __init__(self, parameter_name):
+        self.msg = f"A required parameter is missing: {parameter_name}"
+        super().__init__(self.msg)
 
 
 class Model:
@@ -20,6 +25,8 @@ class Model:
         self.name = model_definition.get("name")
         self.primary_keys = model_definition.get("primary_keys")
         self.columns = model_definition.get("columns")
+
+        self.serial_primary_keys = [k for k, v in self.columns.items() if "SERIAL" in v]
 
         if not self.name:
             raise RequiredParameterNotSetError('table_name')
@@ -64,6 +71,7 @@ class Model:
     def insertRow(self, update: bool = False, **values) -> int:
         """
         Insert a row into the table, optionally updating on conflict.
+        For any value wanted to NULL, value should be None for specified columns.
 
         :param update: Update on conflict if True
         :param values: Values for each column
@@ -72,7 +80,8 @@ class Model:
         columns_to_insert = [col for col in values if col in self.columns]
         values_to_insert = [values[col] for col in columns_to_insert]
 
-        if len(columns_to_insert) < len(self.columns):
+        # serial primary keys shouldn't be specified in the values if no update is done, so we account for that
+        if len(columns_to_insert)+len(self.serial_primary_keys) < len(self.columns):
             missing_cols = set(self.columns) - set(columns_to_insert)
             raise ValueError(f"Missing values for columns: {', '.join(missing_cols)}")
 

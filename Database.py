@@ -150,10 +150,3 @@ class Database:
         db.connection = DatabaseConnection(db.name, db.user, db.password, host=db.host, port=db.port)
 
         return db
-
-
-if __name__ == "__main__":
-    db_test = Database.loadFromTemplate("test_template.json")
-    db_test.resetModels()
-
-    db_test.test_table.insertRow(name="Alice", age=0)
