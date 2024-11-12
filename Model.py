@@ -4,6 +4,10 @@ from DatabaseConnection import DatabaseConnection
 
 
 class Model:
+    """
+    A Model represents on the program size, a table on the database side
+    It serves as an interface and build queries and then execute them on the Database through DatabaseConnection
+    """
     def __init__(self, db_connection: DatabaseConnection, model_definition: dict):
         """
         Initialize the Model with database connection, table name, primary keys, and columns.
@@ -13,11 +17,9 @@ class Model:
         """
 
         self._db_connection: DatabaseConnection = db_connection
-        self.name = None
-        self.primary_keys = None
-        self.columns = None
-
-        self.__dict__.update(model_definition)
+        self.name = model_definition.get("name")
+        self.primary_keys = model_definition.get("primary_keys")
+        self.columns = model_definition.get("columns")
 
         if not self.name:
             raise RequiredParameterNotSetError('table_name')
@@ -30,7 +32,7 @@ class Model:
                 raise ValueError(f"Primary key '{pk}' must be defined in columns")
 
     def __repr__(self) -> str:
-        return f'{self.name} -> ({", ".join([f"{x[0]}: {x[1]} <{True if x[0] in self.primary_keys else False}>" for x in self.columns.items()])})'
+        return f"{self.name} -> ({', '.join(f'{k}: {v} <PK>' if k in self.primary_keys else f'{k}: {v}' for k, v in self.columns.items())})"
 
     def dropTable(self) -> None:
         query = sql.SQL("DROP TABLE IF EXISTS {table};").format(
@@ -61,44 +63,40 @@ class Model:
 
     def insertRow(self, update: bool = False, **values) -> int:
         """
-        Insert a row into the table. Optionally, update existing rows if there is a conflict.
+        Insert a row into the table, optionally updating on conflict.
 
-        :param update: Whether to update on conflict
-        :param values: Column values to insert
-        :return: The ID of the inserted row
+        :param update: Update on conflict if True
+        :param values: Values for each column
+        :return: ID of the inserted row
         """
-        columns_to_insert = []
-        values_to_insert = []
-        for col, col_type in self.columns.items():
-            if col in values and values[col] is not None:
-                columns_to_insert.append(sql.Identifier(col))
-                values_to_insert.append(values[col])
-            elif col in self.primary_keys and "SERIAL" in col_type and not update:
-                continue
-            elif col not in values:
-                raise ValueError(f"Missing value for column '{col}'")
+        columns_to_insert = [col for col in values if col in self.columns]
+        values_to_insert = [values[col] for col in columns_to_insert]
 
-        columns = sql.SQL(', ').join(columns_to_insert)
+        if len(columns_to_insert) < len(self.columns):
+            missing_cols = set(self.columns) - set(columns_to_insert)
+            raise ValueError(f"Missing values for columns: {', '.join(missing_cols)}")
+
+        columns = sql.SQL(', ').join(sql.Identifier(col) for col in columns_to_insert)
         placeholders = sql.SQL(', ').join(sql.Placeholder() for _ in values_to_insert)
 
         if update:
             updates = sql.SQL(', ').join(
-                sql.SQL("{col} = EXCLUDED.{col}").format(col=col)
-                for col in columns_to_insert if col.string not in self.primary_keys
+                sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(col))
+                for col in columns_to_insert if col not in self.primary_keys
             )
-            conflict_clause = sql.SQL("ON CONFLICT ({pks}) DO UPDATE SET {updates}").format(
-                pks=sql.SQL(', ').join(sql.Identifier(pk) for pk in self.primary_keys),
+            conflict_clause = sql.SQL("ON CONFLICT ({pk}) DO UPDATE SET {updates}").format(
+                pk=sql.SQL(', ').join(sql.Identifier(pk) for pk in self.primary_keys),
                 updates=updates
             )
         else:
             conflict_clause = sql.SQL("ON CONFLICT DO NOTHING")
 
         query = sql.SQL("""
-            INSERT INTO {table} ({columns}) VALUES ({values}) {conflict_clause} RETURNING id;
+            INSERT INTO {table} ({columns}) VALUES ({placeholders}) {conflict_clause} RETURNING id
         """).format(
             table=sql.Identifier(self.name),
             columns=columns,
-            values=placeholders,
+            placeholders=placeholders,
             conflict_clause=conflict_clause
         )
 
@@ -108,51 +106,46 @@ class Model:
         """
         Delete a row based on primary key values.
 
-        :param row_values: Values corresponding to the primary keys
+        :param row_values: Values matching the primary keys, should have one value per primary key, to identify a row
         """
         if len(row_values) != len(self.primary_keys):
-            raise ValueError(f"Provide values for the primary keys: {self.primary_keys}")
+            raise ValueError("Provide values for all primary keys")
 
         where_clause = sql.SQL(" AND ").join(
             sql.SQL("{pk} = %s").format(pk=sql.Identifier(pk)) for pk in self.primary_keys
         )
-        query = sql.SQL("DELETE FROM {table} WHERE {where_clause};").format(
+        query = sql.SQL("DELETE FROM {table} WHERE {where_clause}").format(
             table=sql.Identifier(self.name),
             where_clause=where_clause
         )
         self._db_connection.execute(query, row_values)
 
-    def select(self, columns: list[str] = None, where: dict = None, order: list[str] = None, limit: int = None) -> list:
+    def select(self, columns=None, where=None, order=None, limit=None) -> list:
         """
-        Select rows from the table based on specified columns, conditions, order, and limit.
+        Select rows with optional columns, conditions, ordering, and limit.
 
-        :param columns: Columns to select
-        :param where: Conditions for selection
-        :param order: Columns to order by
-        :param limit: Number of rows to retrieve
+        :param columns: List of columns to select, default is all (*)
+        :param where: Dictionary of conditions
+        :param order: List of columns to order by
+        :param limit: Maximum number of rows to retrieve
         :return: List of selected rows
         """
-        if columns:
-            columns_sql = sql.SQL(', ').join([sql.Identifier(col) for col in columns])
-        else:
-            columns_sql = sql.SQL('*')
+        columns_sql = sql.SQL(', ').join(sql.Identifier(col) for col in columns) if columns else sql.SQL('*')
 
         where_sql = sql.SQL('')
         if where:
-            conditions = [
-                sql.SQL('{col} = %s').format(col=sql.Identifier(col)) for col in where.keys()
-            ]
-            where_sql = sql.SQL("WHERE") + sql.SQL(" AND ").join(conditions)
+            conditions = [sql.SQL("{col} = %s").format(col=sql.Identifier(col)) for col in where.keys()]
+            where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(conditions)
 
         order_sql = sql.SQL('')
         if order:
-            order_sql = sql.SQL('ORDER BY') + sql.SQL(', ').join(sql.Identifier(col) for col in order)
+            order_sql = sql.SQL("ORDER BY ") + sql.SQL(', ').join(sql.Identifier(col) for col in order)
 
         limit_sql = sql.SQL('')
-        if limit:
+        if limit is not None:
             limit_sql = sql.SQL("LIMIT %s")
 
-        query = sql.SQL("SELECT {columns} FROM {table} {where} {order} {limit};").format(
+        query = sql.SQL("SELECT {columns} FROM {table} {where} {order} {limit}").format(
             columns=columns_sql,
             table=sql.Identifier(self.name),
             where=where_sql,
@@ -160,9 +153,8 @@ class Model:
             limit=limit_sql
         )
 
-        # Parameters for placeholders:
-        query_placeholders = list(where.values()) if where else []
-        if limit:
-            query_placeholders.append(limit)
+        query_params = list(where.values()) if where else []
+        if limit is not None:
+            query_params.append(limit)
 
-        return self._db_connection.execute(query, query_placeholders, fetch=True)
+        return self._db_connection.execute(query, query_params, fetch=True)

@@ -2,6 +2,10 @@ import psycopg2
 
 
 class DatabaseConnection:
+    """
+    DatabaseConnection is an interface between PostgreSQL database and the rest of the program
+    It is based on the psycopg2 package
+    """
     def __init__(self, db_name, username, password, host='localhost', port=5432):
         self.name = db_name
         self.username = username

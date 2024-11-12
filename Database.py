@@ -9,7 +9,7 @@ class Template:
 
     def __init__(self):
         self.database = None
-        self.tables = None
+        self.models = None
 
     @staticmethod
     def loadFromFile(file_path):
@@ -19,6 +19,12 @@ class Template:
         t = Template()
         with open(file_path, 'r') as f:
             data = json.load(f)
+
+        if not "models" in data:
+            raise ValueError("Template does not have models")
+        if not "database" in data:
+            raise ValueError("Template does not have database")
+
         for k in data['database']:
             if data['database'][k] == "ENV":
                 data['database'][k] = getenv(data['database'][k], None)
@@ -41,20 +47,21 @@ class Template:
             "username": "ENV",
             "password": "ENV"
         }
-        t.tables = list()
+        t.models = list()
         return t
 
 
 class Database:
     """
     Base class that put in relation DatabaseConnection() and Model()
-    User should define a child class of Database() in order to abstract even more the table management
+    User should define a subclass of Database() in order to abstract even more the table management
     """
     def __init__(self):
         self.connection = None
 
         self.template = None
 
+        # models will be saved in the object __dict___, we store the models names in order to access all models through getattr(self, model_name)
         self.models_names = []
 
         self.name = None
@@ -64,6 +71,11 @@ class Database:
 
     @staticmethod
     def loadFromTemplate(path):
+        """
+        Loads a template from file and build a Database object using the template
+        :param path: path to the template file, can be relative to program execution or absolute
+        :return: returns a Database object, fully loaded
+        """
         db = Database()
         db.template = Template.loadFromFile(path)
 
@@ -75,7 +87,8 @@ class Database:
 
         db.connection = DatabaseConnection(db.name, db.user, db.password, host=db.host, port=db.port)
 
-        for models in db.template.tables:
+        # we add the models to the Database object
+        for models in db.template.models:
             d = {models["name"]: Model(db.connection, models)}
             db.__dict__.update(d)
             db.models_names.append(models["name"])
@@ -83,6 +96,10 @@ class Database:
         return db
 
     def _check(self) -> None:
+        """
+        Helper method to check if a database was correctly initialized
+        :return: None
+        """
         if self.template is None:
             raise ValueError("Template has not been created")
         if len(self.models_names) == 0:
@@ -117,6 +134,10 @@ class Database:
 
     @staticmethod
     def generateEmptyDatabase():
+        """
+        For test uses, give an empty Database object, based on an empty Template
+        :return:
+        """
         db = Database()
         db.template = Template.generateEmptyTemplate()
 

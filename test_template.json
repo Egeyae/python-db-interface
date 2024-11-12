@@ -7,7 +7,7 @@
     "username" : "ENV",
     "password" : "ENV"
   },
-  "tables" : [
+  "models" : [
     {
       "name" : "test_table",
       "columns" : {
